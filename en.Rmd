@@ -1,0 +1,638 @@
+---
+params: 
+  title: ""
+  publication_date: ""
+  doi: ""
+output: 
+  html_document:
+    anchor_sections: false
+    theme: null
+    highlight: null
+    mathjax: null
+    css: ["style.css", "https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700&display=swap"]
+    self_contained: true
+title: "`r params$title`"
+---
+
+```{r general-setup, include=FALSE}
+## This file contains the ENGLISH version of the data story
+
+# Set general chunk options
+knitr::opts_chunk$set(echo = FALSE, fig.showtext = TRUE, fig.retina = 3, 
+                      fig.align = "center", warning = FALSE, message = FALSE)
+
+# Install snf.datastory package if not available, otherwise load it
+if (!require("snf.datastory")) {
+  if (!require("devtools")) {
+    install.packages("devtools")
+    library(devtools)
+  }
+  install_github("snsf-data/snf.datastory")
+  library(snf.datastory)
+}
+
+# Load packages
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(conflicted) 
+library(jsonlite)
+library(here)
+library(ggiraph)
+library(dbplyr)
+library(snfverse)
+library(kableExtra)
+library(ggpubr)
+library(readr)
+library(ggh4x)
+
+# Conflict preferences
+conflict_prefer("filter", "dplyr")
+conflict_prefer("get_datastory_theme", "snf.datastory")
+conflict_prefer("get_datastory_scheme", "snf.datastory")
+
+# Increase showtext package font resolution
+showtext_opts(dpi = 320)
+
+# Set the locale for date formatting (Windows)
+Sys.setlocale("LC_TIME", "English")
+
+# Create function to print number with local language-specific format 
+print_num <- function(x) snf.datastory::print_num(x, lang = "fr")
+
+# Knitr hook for local formatting of printed numbers
+knitr::knit_hooks$set(
+  inline <- function(x) {
+    if (!is.numeric(x)) {
+      x
+    } else {
+      print_num(x)
+    }
+  }
+)
+```
+
+```{r print-header-infos, results='asis'}
+# Add publication date to header
+cat(format(as_datetime(params$publication_date), "%d.%m.%Y"))
+
+# Register the Google font (same as Data Portal, is not loaded twice)
+cat(paste0("<link href='https://fonts.googleapis.com/css?family=", 
+           "Source+Sans+Pro:400,700&display=swap' rel='stylesheet'>"))
+```
+
+```{r story-specific-setup, include=FALSE, message=FALSE}
+
+df <- read_csv("data/fellowships.csv")
+
+# Set story-specific variables etc. here
+color_scheme <- get_datastory_scheme()
+
+country_name_map <- c("United States", "United Kingdom", "Germany", "France",
+                      "Canada", "Australia", "Netherlands", "Italy", 
+                      "Sweden", "Spain", "Austria", "Belgium")
+names(country_name_map) <- c("US", "UK", "DE", "FR", 
+                             "CA", "AU", "NL", "IT", 
+                             "SE", "ES", "AT", "BE")
+
+thresh_high <- 200  # 7 countries
+thresh_mid <- 90    # 12 countries
+thresh_low <- 40    # 16 countries
+
+# Construct total per year df to be able to calculate percentages
+total_per_year <- df %>% 
+  group_by(CallDecisionYear) %>% 
+  summarise(total_per_year = n())
+
+df <- df %>% 
+  inner_join(total_per_year, by = "CallDecisionYear")
+
+####################################################################################
+### Total per year:  observe that there were the most fellowships 2010-2012,
+###                  and the numbers since then are lower
+### Plot 3: Include this plot at the end of the story
+
+
+label_xs <- c(2018, 2018)
+label_ys <- c(430, 640)
+type <- c("Fellowships", "Institutions")
+df_labels <- data.frame(label_xs, label_ys, type)
+library(ggiraph)
+gg_total_per_year <- df %>% 
+  group_by(CallDecisionYear, Number) %>% 
+  summarise(n = n()) %>% 
+  group_by(CallDecisionYear) %>% 
+  summarise(Institutions = sum(n), Fellowships = n()) %>% 
+  gather(key = "type", value = "count", c(Fellowships, Institutions))
+  
+  # Make plot
+gg_total_per_year_plot <- gg_total_per_year %>% 
+  ggplot(aes(x = CallDecisionYear, y = count, color = type, 
+             group = type,
+             # Define tooltip text for ggiraph
+             tooltip = paste0("Type: ", type, "<br>",
+                              "Count: ", count, "<br>",
+                              "Year: ", CallDecisionYear, "<br>"), 
+             # Highlight all of the points with the same color when hovering
+             # over it (ggiraph)
+             data_id = rownames(gg_total_per_year))) +
+  geom_line(size = 0.5) +
+  geom_point_interactive(shape = 16, size = 2.5) + 
+  # geom_point(size = 2.5, 
+  #            aes(CallDecisionYear, count)) + 
+  scale_y_continuous(limits = c(0,700)) + 
+  scale_x_continuous(breaks = seq(2005,2020,3)) + 
+  scale_color_manual(values = c(color_scheme[3], 
+                                color_scheme[1])) +  #, labels = c("Fellowships", "Institutions")) +
+  # geom_text(data = df_labels, aes(x = label_xs, y = label_ys, label = type, color = type), family = "Source Sans Pro") +
+  get_datastory_theme(gridline_axis = "y") + 
+  theme(legend.text = element_text(margin = margin(r = .5, unit = "cm"))) +  # Adds space between legend item pairs
+  theme(#legend.position = "none",
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(), 
+    # Blue background for plot, same as for box background
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank(), 
+    panel.background = element_rect(fill = "#DAF1FC", colour = "#DAF1FC"), 
+    plot.background = element_rect(fill = "#DAF1FC", colour = "#DAF1FC"), 
+    legend.background = element_rect(fill = "#DAF1FC", colour = "#DAF1FC"))
+gg_total_per_year_plot
+# labs(y = "Number")
+# x = "Year", title = "Fellowships and total international institutions visited per year")
+# gg_total_per_year
+
+
+# # Look at number of institutions/fellowship per year
+# multi_institutes <- df %>%
+#   group_by(CallDecisionYear, Number) %>%
+#   summarise(n_institutes = n()) %>%
+#   group_by(CallDecisionYear) %>%
+#   summarise(n = n(),
+#             sum = sum(n_institutes),
+#             mean = mean(n_institutes),
+#             sd = sd(n_institutes))
+# multi_institutes
+
+
+
+
+
+####################################################################################
+# Figure 1:
+# combine last 10/15 years of data together, bar plot of top countries
+
+countries_all_years <- df %>% 
+  group_by(CountryIsoCode, Country, Continent) %>% 
+  summarise(n = n()) %>% 
+  arrange(desc(n)) %>% 
+  # mutate(CountryIsoCode_mod = ifelse(n < thresh_low, "Other", CountryIsoCode))
+  # Group continents for non-Europe/North America
+  mutate(CountryIsoCode_mod = case_when(
+      Continent %in% c("Africa", "Latin America", "Asia") ~ Continent,
+      n < thresh_low ~ "Other",
+      TRUE ~ CountryIsoCode))
+  
+
+
+# Add "other" coutry demarcation to data, for optional inspection later
+df <- countries_all_years %>% 
+  ungroup() %>% 
+  select(CountryIsoCode, CountryIsoCode_mod) %>% 
+  right_join(df, by = "CountryIsoCode")
+  
+
+# Make barplot for all years
+gg_all_years_bar <- countries_all_years %>% 
+  filter(n > thresh_mid) %>% 
+  ggplot(aes(x = reorder(CountryIsoCode, -n), y = n)) +  # Order numerically
+  geom_bar(stat="identity", fill = color_scheme[1]) +
+  # labs(y = "Number of Fellowships") +
+       # x = "Country", title = paste0("Most visited Postdoc.Mobility host countries since ", y0)) +
+  geom_text(aes(
+    y = n + 100, 
+    label = paste0(print_num(n))), size = 3, family = "Source Sans Pro", 
+    color = "#4d4d4d") +
+  get_datastory_theme(gridline_axis = "y") +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+# gg_all_years_bar
+
+
+####################################################################################
+# Figure 2:
+# Plot trend lines for interesting countries
+
+plot_trend_lines <- function(df, trendy_ctries) {
+  df_here <- df %>% 
+    filter(CountryIsoCode %in% trendy_ctries) %>% 
+    group_by(CountryIsoCode, Country, CallDecisionYear, total_per_year) %>% 
+    summarise(n = n()) %>% 
+    mutate(pctg = n/total_per_year) %>% 
+    ungroup() %>% 
+    mutate(CountryIsoCode = factor(CountryIsoCode, trendy_ctries))
+    
+  
+  # max_y <- max(df_here$n) + 0.1 * max(df_here$n)
+  max_y <- max(df_here$pctg) + 0.1 * max(df_here$pctg)
+  
+  gg <- df_here %>% 
+    # group_by(Country) %>% 
+    ggplot(aes(x = CallDecisionYear, y = pctg, colour = Country,
+           tooltip = paste0("Country: ", Country, "<br>",
+                            "Percentage: ", paste0(round(pctg * 100, 1), " %"), "<br>",
+                            "Count: ", n, "<br>",
+                            "Year: ", CallDecisionYear, "<br>"),
+           data_id = rownames(df_here))) + 
+    geom_line(aes(group = Country), size = 0.5, color = color_scheme[1]) + 
+    geom_point_interactive(shape = 16, size = 2.5, color = color_scheme[1]) + 
+    # ylim(0, max_y) +
+    scale_x_continuous(breaks = seq(2005,2020,5)) + 
+    scale_y_continuous(labels = percent_format(accuracy = 1), limits = c(0, max_y)) +
+    # geom_text(aes(text = paste0(Country, " (", CallDecisionYear, "): ", round(pctg*100,1), "%", " (", n, ")"))) +
+    # scale_color_manual(values = color_scheme) + 
+    # annotate("text", label = CountryIsoCode, x = 2020, y = 200, size = 5, colour = "grey", angle = 30) +
+    # geom_text(data = df_ctry_label, aes(x = CallDecisionYear, y = n, label = CountryIsoCode),
+    # geom_text(data = df_ctry_label, aes(x = CallDecisionYear, y = y_upper_left, label = CountryIsoCode),
+    #           family = "Source Sans Pro") +  # nudge_y = nudge_y, 
+    # labs(y = "Number of Fellowships\n") + 
+         # x = "Year", title = ttl) +
+    get_datastory_theme(gridline_axis = "y") +
+    theme(legend.position = "none",
+          panel.spacing = unit(4, "lines"),
+          # panel.border = element_rect(colour = "black", fill = NA),
+          # axis.title.y = element_text(margin = margin(l = 5)),
+          # axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 10)),
+          axis.title.y = element_blank(),
+          axis.title.x = element_blank(),
+          strip.text = element_text(hjust=0)
+          # strip.text.x = element_blank()  # Removes individual facet_wrap titles
+    ) +
+    facet_wrap(~CountryIsoCode, ncol = 2, labeller = labeller(CountryIsoCode = country_name_map)) +
+    theme(strip.text = element_text(margin = margin()),
+          panel.spacing = unit(1, "lines"))
+}
+
+# country_name_map <- c("United States", "United Kingdom", "Germany", "France",
+#                       "Canada", "Netherlands", "Australia", "Belgium", "Austria")
+# names(country_name_map) <- c("US", "UK", "DE", "FR", "CA", "NL", "AU", "BE", "AT")
+
+gg_trendy_US <- plot_trend_lines(df, c("US", "UK"))  # "Fellowships to the US and the UK"
+trendy_ctries <- c("DE", "FR", "CA", "AU", "NL", "AT")
+gg_trendy_rest <- plot_trend_lines(df, trendy_ctries)  # "A selection of interesting trendlines"
+# gg_trendy_rest
+# gg_trendy_US
+
+
+
+girify <- function(obj, height_svg = 4){
+  girafe(ggobj = obj, 
+         height_svg = height_svg, 
+         options = list(
+           opts_toolbar(saveaspng = FALSE),
+           opts_hover(css = "fill:#ff0000;stroke:#000000;"),
+           opts_tooltip(
+             css = get_ggiraph_tooltip_css(),
+             opacity = 0.6,
+             delay_mouseover = 0,
+             delay_mouseout = 0)))
+}
+
+df_europe <- df %>% 
+  # Subset continental Europe ("Europe" without UK)
+  filter(Continent %in% "Europe", 
+         CountryIsoCode != "UK") %>%
+  group_by(Continent, CallDecisionYear, total_per_year) %>% 
+  summarise(n = n()) %>% 
+  mutate(pctg = n/total_per_year) %>% 
+  ungroup() %>% 
+  # As we've excluded UK, the continent is continental Europe
+  mutate(Continent = if_else(Continent == "Europe",
+                             "Continental Europe", 
+                             Continent))
+
+gg_europe <- df_europe %>% 
+  ggplot(aes(x = CallDecisionYear, y = pctg, colour = Continent,
+             tooltip = paste0("Continent: ", Continent, "<br>",
+                              "Percentage: ", paste0(round(pctg * 100, 1), " %"), "<br>",
+                              "Count: ", n, "<br>",
+                              "Year: ", CallDecisionYear, "<br>"),
+             data_id = CallDecisionYear)) + 
+  geom_line(aes(group = Continent), size = 0.5, color = color_scheme[1]) + 
+  geom_point_interactive(shape = 16, size = 2.5, color = color_scheme[1]) + 
+  # ylim(0, max_y) +
+  scale_x_continuous(breaks = seq(2005,2020,5)) + 
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  get_datastory_theme(gridline_axis = "y") +
+  theme(panel.spacing = unit(4, "lines"),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        strip.text = element_text(hjust=0)) +
+  theme(strip.text = element_text(margin = margin()),
+        panel.spacing = unit(1, "lines"), 
+        plot.title = element_text(size = 9)) +
+  ggtitle("Continental Europe") +
+  expand_limits(y = 0)
+
+ggiraph_trendy_US <- girafe(ggobj = cowplot::plot_grid(gg_europe, 
+                                                       gg_trendy_US, 
+                                                       nrow = 2),
+                            options = list(
+                              opts_toolbar(saveaspng = FALSE),
+                              opts_hover(css = "fill:#ff0000;stroke:#000000;"),
+                              opts_tooltip(
+                                css = get_ggiraph_tooltip_css(),
+                                opacity = 0.6,
+                                delay_mouseover = 0,
+                                delay_mouseout = 0)))
+ggiraph_trendy_rest <- girify(gg_trendy_rest)
+ggiraph_total_per_year <- girify(gg_total_per_year_plot)
+
+
+pool <- fetch_pool()
+
+amount_granted <- tbl(pool, in_schema("app", "Application")) %>% 
+  select(Number,
+         AmountGranted) %>% 
+  collect()
+
+df <- df %>% 
+  left_join(amount_granted, by = "Number")
+
+avg_grant_2021 <- df %>% 
+  filter(CallDecisionYear == 2021) %>% 
+  summarise(yearly_average = mean(AmountGranted, na.rm = TRUE)) %>% 
+  round(-3) %>% 
+  print_num()
+```
+
+<!-- Short lead (2-3 sentences) in bold -->
+
+__The SNSF sends hundreds of early-career researchers all over the world every year to take part in multi-year international research visits. Where do they go?__
+
+For the most part, these researchers have completed their PhDs or medical education in Switzerland. They then spend time doing postdoctoral research abroad with the SNSF’s <a href="http://www.snf.ch/en/funding/careers/postdoc-mobility/Pages/default.aspx" target="_blank">Postdoc.Mobility</a> funding scheme. The average grant size of these 2-year fellowships is valued at around `r avg_grant_2021` CHF for 2021. These stays (around 400 yearly) enable grantees to acquire more in-depth knowledge, increase their scientific independence, and enhance their profiles, before coming back to pursue careers in Switzerland. They are also very important for Switzerland’s connection to the international research community. 
+
+
+### Top visited countries
+
+The most frequently visited destinations of Postdoc.Mobility fellowships between 2005 and 2021 are seen in the figure below. Four out of the top six countries are English-speaking, with the other two being Germany and France.
+
+<div class="plot-box">
+<div class="plot-title">Most visited Postdoc.Mobility host countries</div>
+```{r all_years, out.width="75%", fig.height=4}
+gg_all_years_bar
+```
+<div class="caption">
+Total number of visits to Postdoc.Mobility fellowship destinations between 2005 and 2021.
+</div>
+</div>
+
+
+
+### Trends across years
+
+While the US remains by far the most visited country, its popularity has been declining since 2013. This decrease may be partially attributable to the political situation with a more restrictive immigration policy.  Interestingly, the number of Postdoc.Mobility stays in the UK has remained rather constant and has not seen such a decrease so far, despite the arrival of Brexit. Next to it, the whole of continental Europe has become more attractive to grantees, which is reflected in the increasing number of visits.
+
+<div class="plot-box">
+<div class="plot-title">Fellowships to continental Europe, the US and the UK</div>
+```{r trends1, fig.height=2}
+ggiraph_trendy_US 
+```
+<div class="caption">
+Yearly percentage of total worldwide Postdoc.Mobility fellowships to continental Europe, the US and the UK.
+</div>
+</div>
+
+A selection of countries with the most interesting trendlines are shown below. France was in high demand around 2012-2013, followed immediately by a large decrease in visits, but has been attracting more early-career researchers again in recent years. The decreasing number of fellowships to the US has not resulted in increasing numbers to other English-speaking countries, as we see a moderate downward trend in both Canada and Australia. In contrast, the percentage of fellowships to Germany, the Netherlands and Austria has been generally increasing.
+
+The countries not highlighted in these figures do not show any particular multi-year trends in the percentage of Postdoc.Mobility recipients they receive.
+
+<div class="plot-box">
+<div class="plot-title">Fellowships to other top countries</div>
+```{r trends2, out.width="100%", fig.height=6}
+ggiraph_trendy_rest
+```
+<div class="caption">
+Yearly percentage of total worldwide Postdoc.Mobility fellowships to a selection of countries. The countries not shown here did not exhibit any strong patterns in their trendlines.
+</div>
+</div>
+
+
+The figure below shows the number of fellowships per continent broken down by research areas (SSH: Social Sciences and Humanities, MINT: Mathematics, Natural and Engineering Sciences, LS: Life Sciences). North America and Oceania show a higher count of fellowships focusing on the life sciences, while the social sciences and humanities are the most frequent in the remaining continents. The number of fellowships is particularly low in Latin America and Africa. In these figures, Mexico is grouped with Latin America.
+
+<div class="plot-box">
+<div class="plot-title">Fellowships in the different research areas and continents</div>
+```{r, fig.height=5.5}
+# df %>% 
+  # count(Continent)
+
+df %>% 
+  group_by(Continent) %>% 
+  count(research_area) %>%
+  mutate(max = max(n),
+         research_area = factor(research_area, 
+                                levels = c("SSH", "MINT", "LS")),
+         Continent = factor(Continent, 
+                            levels = c("North America", "Europe",
+                                       "Oceania", "Asia",
+                                       "Africa", "Latin America"))) %>% 
+  ggplot(aes(x = research_area, y = n)) +  
+  geom_bar(stat="identity", fill = color_scheme[1], width = 0.4) +
+  # ylim(c(0, max + 50)) +
+  # labs(y = "Number of Fellowships") +
+       # x = "Country", title = paste0("Most visited Postdoc.Mobility host countries since ", y0)) +
+  geom_text(aes(
+    y = n + max * 0.1, 
+    label = print_num(n)), size = 2.5, family = "Source Sans Pro", 
+    color = "#4d4d4d") +
+  get_datastory_theme(gridline_axis = "y") +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  facet_wrap(~Continent, ncol = 2, nrow = 3, scales = "free")
+
+```
+<div class="caption">
+Number of Postdoc.Mobility fellowships in the different research areas and continents. Mexico is grouped with Latin America.
+</div>
+</div>
+
+
+The percentage of fellowships to European countries has been increasing in recent years, while those to Oceania and North America have been declining since 2015. The drop in Oceania after 2020 may also be due to the pandemics' very restrictive travelling and immigration rules, especially in Australia and New Zealand. In comparison, the number of fellowships to Asia have remained relatively low.
+
+<div class="plot-box">
+<div class="plot-title">Fellowships in the different research areas and the four most visited continents over time</div>
+```{r, fig.height=10, fig.width=12}
+total <- df %>% 
+  filter(Continent  %in% c("Europe", "North America", "Oceania", "Asia")) %>% 
+  group_by(CallDecisionYear, Continent, total_per_year) %>% 
+  count(CallDecisionYear, Continent) %>% 
+  mutate(research_area = "Overall")
+
+total_ra <- df %>% 
+  filter(Continent  %in% c("Europe", "North America", "Oceania", "Asia")) %>% 
+  group_by(CallDecisionYear, Continent, total_per_year) %>% 
+  count(research_area)
+
+counts <- rbind(total, total_ra)
+
+counts <- counts %>% 
+  mutate(pctg = n/total_per_year) 
+
+counts_plot <- counts %>%   
+  # ungroup() %>% 
+  # group_by(CallDecisionYear, Continent) %>% 
+  mutate(research_area = factor(research_area,
+                                levels = c("SSH", "MINT", "LS", "Overall")),
+         Continent = factor(Continent,
+                            levels = c("North America", 
+                                       "Europe", 
+                                       "Oceania", 
+                                       "Asia"))) %>% 
+  group_by(Continent) %>% 
+  mutate(limit = max(n)) %>% 
+  ggplot(aes(x = CallDecisionYear, y = pctg, color = research_area)) +  
+  geom_line(mapping = aes(x = CallDecisionYear), size = 0.5) +
+  geom_point_interactive(aes(tooltip = paste0("Countries: ", Continent, "<br>",
+                                              "Research area: ", research_area, "<br>",
+                                              "Percentage: ", paste0(round(pctg * 100), " %"), "<br>",
+                                              "Count: ", n, "<br>",
+                                              "Year: ", CallDecisionYear, "<br>"),
+                             data_id = rownames(counts)), shape = 16, 
+                         size = 2.5) +
+  scale_color_manual(values = color_scheme) +
+  # scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  # ylim(c(0, 400)) +
+  # labs(y = "Number of Fellowships") +
+       # x = "Country", title = paste0("Most visited Postdoc.Mobility host countries since ", y0)) +
+  get_datastory_theme(gridline_axis = "y") +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(), 
+        plot.margin = unit(x = c(-2,0,0,0), units="mm"),
+        strip.text.x = element_text(size = 7),
+        panel.spacing = unit(0, "lines")) +
+  facet_wrap(~Continent, nrow = 2, ncol = 2, scales = "free_y", shrink = FALSE) +
+  expand_limits(y = c(0, 0.1)) + 
+  # Insert individual scales for the facetted plots using ggh4x, so we can 
+  # set individual limits for the four continents
+  facetted_pos_scales(
+    y = list(
+      Continent == "North America" ~ 
+        scale_y_continuous(limits = c(0, 0.7), 
+                           labels = percent_format(accuracy = 1)),
+      Continent == "Europe" ~ 
+        scale_y_continuous(limits = c(0, 0.7), 
+                           labels = percent_format(accuracy = 1)), 
+      Continent == "Oceania" ~ 
+        scale_y_continuous(limits = c(0, 0.1), 
+                           labels = percent_format(accuracy = 1)), 
+      Continent == "Asia" ~ 
+        scale_y_continuous(limits = c(0, 0.1), 
+                           labels = percent_format(accuracy = 1))
+    )
+  )
+
+girify(counts_plot)
+```
+<div class="caption">
+Yearly percentage of total worldwide Postdoc.Mobility fellowships in the different research areas and four most visited continents over time. Remaining continents are not shown due to a low amount of fellowships. Please note that the two graphs of the upper row show different Y-axis sections than the two graphs of the lower row. 
+</div>
+</div>
+
+The following tables show the average amount awarded per year to Postdoc.Mobility fellowships for each continent and the total amount awarded for each research area and continent separately since 2005. It is important to mention that the amount awarded to fellowships holders is partially defined by the cost-of-living in the destination country.
+
+
+<div class="plot-box">
+<div class="plot-title">Average amount of funding awarded per year (in Swiss francs) for Postdoc.Mobility fellowships for each continent from 2005-2021</div>
+
+```{r}
+average <- df %>% 
+  group_by(Continent) %>% 
+  summarise(amount_granted = mean(AmountGranted, na.rm = TRUE)) %>% 
+  arrange(desc(amount_granted)) %>% 
+  mutate(amount_granted = print_num(round(amount_granted)))
+
+average %>% 
+  kable(linesep = "",
+        booktabs = TRUE,
+        col.names = c("Continent", "Average amount awarded"),
+        label = "continent_average_amount",
+        table.attr = "style='width:55%;'") %>%
+  kable_styling(position = "center", 
+                htmltable_class = "lightable-striped", 
+                html_font = "\"Source Sans Pro\"") %>% 
+  kable_paper(latex_options = c("striped", "hold_position"), 
+              html_font = "\"Source Sans Pro\"")
+```
+
+
+</div>
+
+
+<div class="plot-box">
+<div class="plot-title">Total funding awarded (in Swiss francs) for Postdoc.Mobility fellowships per research area and continent from 2005-2021</div>
+
+```{r}
+amounts <- df %>% 
+  group_by(Continent, research_area) %>% 
+  summarise(amount_granted = sum(AmountGranted, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  # Ordering
+  mutate(research_area = fct_relevel(research_area, c("SSH", "MINT", "LS"))) %>% 
+  arrange(Continent, research_area) %>% 
+  pivot_wider(names_from = research_area, values_from = amount_granted) 
+
+total <- print_num(sum(apply(amounts[,-1], 1, sum)))
+sum1 <- print_num(apply(amounts[,-1], 1, sum))
+sum2 <- c("", print_num(apply(amounts[,-1], 2, sum)))
+
+amounts <- sapply(amounts, print_num)
+
+
+amounts <- cbind(amounts, unname(sum1))
+amounts <- rbind(amounts, unname(sum2))
+amounts[7,5] <- total
+
+amounts %>% 
+  kable(linesep = "",
+        booktabs = TRUE,
+        # col.names = c("Continent", "Amount awarded (CHF)"),
+        label = "continent_research_area_amount"
+        ) %>%
+  kable_styling(position = "center", 
+                htmltable_class = "lightable-striped",
+                html_font = "\"Source Sans Pro\"") %>% 
+  kable_paper(latex_options = c("striped", "hold_position"),
+              html_font = "\"Source Sans Pro\"")
+```
+
+</div>
+
+<div class='info-box'>
+
+### Decline since 2020
+
+The figures comprise all versions of the Postdoc.Mobility fellowship, including the previous schemes Early and Advanced Postdoc.Mobility. Most recipients spend their entire fellowship at one institution, but roughly one in six go to multiple institutions. In this data story, each institution is counted separately and Postdoc.Mobility grants to return to Switzerland are not included. Additionally, all researchers included in this analysis have already completed their PhDs and were considered postdocs at the time of their fellowship. The decreasing awards since 2020 can be explained on the one hand by a reduced budget in 2020, and on the other hand by the merger of Early Postdoc.Mobility with Postdoc.Mobility in 2021. 
+
+
+<div class="plot-box">
+<div class="plot-title">Fellowships granted and total international institutions visited per year from 2005-2021</div>
+<div style="">
+```{r totals}
+ggiraph_total_per_year
+```
+</div>
+<div class="caption">
+Number of Postdoc.Mobility fellowship recipients and their number of visited research institutions over time.
+</div>
+</div>
+
+Further information is available on the <a href="https://data.snf.ch/key-figures/internationality" target="_blank">Internationality</a> page of the SNSF Key Figures, where PhD students in the Doc.Mobility funding scheme are also included in the data about fellowships.
+
+
+</div>
+
+### Keeping track of our fellows
+
+The SNSF is also interested in the impact of its career funding instruments, including the Postdoc.Mobility scheme. Therefore, the <a href="https://careertrackercohorts.ch/" target="_blank">Career Tracker Cohorts (SNSF-CTC)</a> has been implemented in 2018. This initiative is meant to provide a better understanding of the career paths of applicants to postdoctoral SNSF career funding schemes, as well as of the medium and long-term impact of the career funding schemes of the SNSF.
+
+The data, text and code associated with this data story are available on <a href="https://github.com/snsf-data/fellowships_worldwide" target="_blank">Github</a> and archived on <a href="https://doi.org/10.46446/datastory.where-do-our-postdoc-mobility-grantees-go" target="_blank">Zenodo</a>. DOI: 10.46446/datastory.where-do-our-postdoc-mobility-grantees-go
+
