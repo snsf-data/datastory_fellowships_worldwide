@@ -46,7 +46,7 @@ contact_person_mail <- c("datastories@snf.ch", "datastories@snf.ch", "datastorie
 datastory_category <- "standard"
 # Date, after which the story should be published. Stories not displayed if the 
 # date lies in the future. 
-publication_date <- "2022-07-10 12:00:00"
+publication_date <- "2022-07-13 01:00:00"
 # Available language versions in lowercase, possible: "en", "de", "fr".
 languages <- c("en", "de", "fr") 
 # Whether this story should be a "Feature Story" story
@@ -55,7 +55,7 @@ feature_story <- FALSE
 # e.g. https://doi.org/10.46446/datastory.leaky-pipeline
 doi_url <- "https://doi.org/10.46446/datastory.where-do-our-postdoc-mobility-grantees-go" 
 # URL to Github page (optional)
-github_url <- "https://github.com/snsf-data/fellowships_worldwide" 
+github_url <- "https://github.com/snsf-data/datastory_fellowships_worldwide" 
 
 # Put Tag IDs here. Only choose already existing tags.
 tags_ids <- c(300, # fellowships
