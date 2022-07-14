@@ -46,7 +46,7 @@ contact_person_mail <- c("datastories@snf.ch", "datastories@snf.ch", "datastorie
 datastory_category <- "standard"
 # Date, after which the story should be published. Stories not displayed if the 
 # date lies in the future. 
-publication_date <- "2022-07-13 01:00:00"
+publication_date <- "2022-07-13 00:00:00"
 # Available language versions in lowercase, possible: "en", "de", "fr".
 languages <- c("en", "de", "fr") 
 # Whether this story should be a "Feature Story" story
